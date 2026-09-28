@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Production build
+client/dist/
+
+# Environment files
+server/.env
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Database data files (optional, remove if you don't want to track local db)
+# server/data/*.db
+
+# Editor & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
