@@ -47,6 +47,11 @@ app.use('/api/customer', customerRoutes);
 app.use('/api/provider', providerRoutes);
 app.use('/api/admin', adminRoutes);
 
+// API 404 JSON Handler - Ensure API requests never return HTML fallback
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
 // Serve built frontend assets in production if available
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDistPath)) {

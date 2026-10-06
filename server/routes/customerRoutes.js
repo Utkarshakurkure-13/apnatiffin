@@ -10,6 +10,7 @@ const RewardEngine = require('../services/rewardEngine');
 const SubscriptionEngine = require('../services/subscriptionEngine');
 const GeofenceEngine = require('../services/geofenceEngine');
 const NotificationEngine = require('../services/notificationEngine');
+const upload = require('../middleware/upload');
 
 // Customer-only middleware
 router.use(authenticateJWT, requireRole('CUSTOMER'));
@@ -1248,7 +1249,7 @@ router.get('/profile', (req, res) => {
   try {
     const customerId = getCustomerId(req);
     const profile = db.prepare(`SELECT * FROM customer_profiles WHERE id = ?`).get(customerId);
-    const user = db.prepare(`SELECT id, email, role, preferred_language, created_at FROM users WHERE id = ?`).get(req.user.id);
+    const user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
     const activeOrdersCount = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE customer_id = ? AND order_status IN ('NEW', 'ACCEPTED', 'PREPARING', 'READY')`).get(customerId)?.count || 0;
     const totalOrdersCount = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE customer_id = ?`).get(customerId)?.count || 0;
     const activeSubsCount = db.prepare(`SELECT COUNT(*) as count FROM subscriptions WHERE customer_id = ? AND status = 'ACTIVE'`).get(customerId)?.count || 0;
@@ -1271,12 +1272,56 @@ router.get('/profile', (req, res) => {
 });
 
 /**
+ * POST /api/customer/profile/photo - Upload or replace customer profile photo
+ */
+router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
+  upload.uploadPhoto.single('photo')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'File upload failed.' });
+    }
+    try {
+      const customerId = getCustomerId(req);
+      if (!req.file) {
+        return res.status(400).json({ error: 'Please select a valid image file (JPG, JPEG, PNG, WEBP, max 5MB).' });
+      }
+
+      const photoUrl = `/uploads/${req.file.filename}`;
+
+      db.prepare(`
+        UPDATE customer_profiles 
+        SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(photoUrl, customerId);
+
+      db.prepare(`
+        UPDATE users 
+        SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(photoUrl, req.user.id);
+
+      const updatedProfile = db.prepare(`SELECT * FROM customer_profiles WHERE id = ?`).get(customerId);
+      const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
+
+      return res.json({
+        success: true,
+        message: 'Profile photo uploaded successfully!',
+        photo_url: photoUrl,
+        user: updatedUser,
+        profile: updatedProfile
+      });
+    } catch (routeErr) {
+      return res.status(500).json({ error: routeErr.message });
+    }
+  });
+});
+
+/**
  * PUT /api/customer/profile - Update full_name, mobile, delivery_address
  */
 router.put('/profile', (req, res) => {
   try {
     const customerId = getCustomerId(req);
-    const { full_name, mobile, delivery_address, preferred_language } = req.body;
+    const { full_name, mobile, delivery_address, preferred_language, profile_photo } = req.body;
 
     if (!full_name || !mobile) {
       return res.status(400).json({ error: 'Full name and mobile number are required.' });
@@ -1284,16 +1329,21 @@ router.put('/profile', (req, res) => {
 
     db.prepare(`
       UPDATE customer_profiles 
-      SET full_name = ?, mobile = ?, delivery_address = COALESCE(?, delivery_address), updated_at = CURRENT_TIMESTAMP
+      SET full_name = ?, mobile = ?, delivery_address = COALESCE(?, delivery_address), 
+          profile_photo = COALESCE(?, profile_photo), updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(full_name, mobile, delivery_address, customerId);
+    `).run(full_name, mobile, delivery_address, profile_photo, customerId);
+
+    if (profile_photo) {
+      db.prepare(`UPDATE users SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(profile_photo, req.user.id);
+    }
 
     if (preferred_language && ['en', 'mr', 'hi'].includes(preferred_language)) {
       db.prepare(`UPDATE users SET preferred_language = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(preferred_language, req.user.id);
     }
 
     const updatedProfile = db.prepare(`SELECT * FROM customer_profiles WHERE id = ?`).get(customerId);
-    const updatedUser = db.prepare(`SELECT id, email, role, preferred_language FROM users WHERE id = ?`).get(req.user.id);
+    const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
 
     return res.json({
       success: true,

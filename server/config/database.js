@@ -57,6 +57,19 @@ const db = {
       } catch (e) {
         // column may already exist
       }
+
+      // Auto-migrate profile_photo column for all roles
+      try {
+        rawDb.exec(`ALTER TABLE users ADD COLUMN profile_photo TEXT DEFAULT NULL;`);
+      } catch (e) {}
+
+      try {
+        rawDb.exec(`ALTER TABLE customer_profiles ADD COLUMN profile_photo TEXT DEFAULT NULL;`);
+      } catch (e) {}
+
+      try {
+        rawDb.exec(`ALTER TABLE provider_profiles ADD COLUMN profile_photo TEXT DEFAULT NULL;`);
+      } catch (e) {}
       
       saveDbToDisk();
     }

@@ -152,8 +152,20 @@ export default function Header({ activeTab, setActiveTab, sidebarOpen, setSideba
                   onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                   className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-full bg-white/80 hover:bg-emerald-50/70 border border-black/8 shadow-xs transition-all cursor-pointer group"
                 >
-                  <div className="w-7 h-7 rounded-full bg-[#2d6a4f]/15 text-[#2d6a4f] flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-[#2d6a4f] group-hover:text-white transition-colors">
-                    {user.email.charAt(0).toUpperCase()}
+                  <div className="w-7 h-7 rounded-full overflow-hidden bg-[#2d6a4f]/15 text-[#2d6a4f] flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-[#2d6a4f] group-hover:text-white transition-colors">
+                    {(profile?.profile_photo || user?.profile_photo) ? (
+                      <img
+                        src={profile?.profile_photo || user?.profile_photo}
+                        alt="Avatar"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      user.email.charAt(0).toUpperCase()
+                    )}
                   </div>
                   <div className="hidden sm:flex flex-col text-left">
                     <span className="text-xs font-bold text-[#181a2e] truncate max-w-[110px]">

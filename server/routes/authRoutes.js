@@ -110,7 +110,8 @@ router.post('/login', async (req, res) => {
       id: user.id,
       email: user.email,
       role: user.role,
-      preferred_language: user.preferred_language
+      preferred_language: user.preferred_language,
+      profile_photo: user.profile_photo || (profile && profile.profile_photo) || null
     },
     profile
   });
@@ -401,7 +402,8 @@ router.post('/register/provider', async (req, res) => {
       id: userId,
       email: email.toLowerCase().trim(),
       role: 'PROVIDER',
-      preferred_language
+      preferred_language,
+      profile_photo: null
     },
     profile
   });
@@ -416,7 +418,8 @@ router.get('/me', authenticateJWT, (req, res) => {
       id: req.user.id,
       email: req.user.email,
       role: req.user.role,
-      preferred_language: req.user.preferred_language
+      preferred_language: req.user.preferred_language,
+      profile_photo: req.user.profile_photo || (req.user.profile && req.user.profile.profile_photo) || null
     },
     profile: req.user.profile
   });

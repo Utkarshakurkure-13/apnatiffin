@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { getProviderBannerImage } from '../../utils/foodImages';
+import ProfilePhotoUploader from '../../components/common/ProfilePhotoUploader';
 import { 
   ChefHat, 
   Store, 
@@ -34,6 +35,7 @@ export default function ProviderProfile({ setActiveTab }) {
   const [experienceYears, setExperienceYears] = useState(1);
   const [bio, setBio] = useState('');
   const [isOpen, setIsOpen] = useState(1);
+  const [profilePhoto, setProfilePhoto] = useState(profile?.profile_photo || user?.profile_photo || null);
 
   const [fssai, setFssai] = useState(null);
   const [bank, setBank] = useState(null);
@@ -63,6 +65,12 @@ export default function ProviderProfile({ setActiveTab }) {
           setExperienceYears(data.profile.experience_years || 1);
           setBio(data.profile.bio || '');
           setIsOpen(data.profile.is_open ?? 1);
+          if (data.profile.profile_photo) {
+            setProfilePhoto(data.profile.profile_photo);
+          }
+        }
+        if (data.user?.profile_photo && !data.profile?.profile_photo) {
+          setProfilePhoto(data.user.profile_photo);
         }
         setFssai(data.fssai);
         setBank(data.bank);
@@ -119,7 +127,8 @@ export default function ProviderProfile({ setActiveTab }) {
     }
   };
 
-  const bannerImg = getProviderBannerImage({ kitchen_name: kitchenName, food_type: foodType });
+  const defaultBannerImg = getProviderBannerImage({ kitchen_name: kitchenName, food_type: foodType });
+  const activePhoto = profilePhoto || profile?.profile_photo || user?.profile_photo;
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in">
@@ -157,8 +166,16 @@ export default function ProviderProfile({ setActiveTab }) {
           {/* PROVIDER HERO CARD */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl shadow-xl border border-black/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 bg-gradient-to-r from-emerald-50/40 via-white to-amber-50/30">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-              <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-black/10 shadow-lg shrink-0">
-                <img src={bannerImg} alt={kitchenName} className="w-full h-full object-cover" />
+              <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-black/10 shadow-lg shrink-0 bg-gray-100 flex items-center justify-center">
+                <img
+                  src={activePhoto || defaultBannerImg}
+                  alt={kitchenName}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = defaultBannerImg;
+                  }}
+                />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
@@ -199,6 +216,21 @@ export default function ProviderProfile({ setActiveTab }) {
               </div>
             </div>
           </div>
+
+          {/* PROFILE PHOTO UPLOAD SECTION */}
+          <ProfilePhotoUploader
+            currentPhoto={activePhoto}
+            uploadEndpoint="/api/provider/profile/photo"
+            role="PROVIDER"
+            fallbackName={kitchenName || providerName || user?.email}
+            title="Kitchen & Chef Profile Photo"
+            subtitle="Upload a kitchen branding photo, logo, or chef image to present your business to customers."
+            onPhotoUploaded={async (photoUrl) => {
+              setProfilePhoto(photoUrl);
+              await refreshProfile();
+              fetchProfileData();
+            }}
+          />
 
           {/* SHORTCUTS BAR */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

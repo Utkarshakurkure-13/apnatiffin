@@ -183,8 +183,20 @@ export default function Sidebar({ activeTab, setActiveTab, sidebarOpen, setSideb
             onClick={handleProfileNav}
             className="flex items-center gap-2.5 p-2 rounded-2xl hover:bg-white transition-all cursor-pointer border border-transparent hover:border-black/5 group"
           >
-            <div className="w-8 h-8 rounded-full bg-[#2d6a4f]/15 text-[#2d6a4f] flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-[#2d6a4f] group-hover:text-white transition-colors">
-              {user.email.charAt(0).toUpperCase()}
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-[#2d6a4f]/15 text-[#2d6a4f] flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-[#2d6a4f] group-hover:text-white transition-colors">
+              {(profile?.profile_photo || user?.profile_photo) ? (
+                <img
+                  src={profile?.profile_photo || user?.profile_photo}
+                  alt="Avatar"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                user.email.charAt(0).toUpperCase()
+              )}
             </div>
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-xs font-bold text-[#181a2e] truncate group-hover:text-[#2d6a4f]">

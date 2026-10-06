@@ -13,7 +13,7 @@ function authenticateJWT(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     // Fetch fresh user state from DB
-    const user = db.prepare(`SELECT id, email, role, preferred_language, is_blocked FROM users WHERE id = ?`).get(decoded.id);
+    const user = db.prepare(`SELECT id, email, role, preferred_language, is_blocked, profile_photo FROM users WHERE id = ?`).get(decoded.id);
     if (!user) {
       return res.status(401).json({ error: 'User account not found.' });
     }

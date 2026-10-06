@@ -786,7 +786,7 @@ router.get('/profile', (req, res) => {
   try {
     const providerId = getProviderId(req);
     const profile = db.prepare(`SELECT * FROM provider_profiles WHERE id = ?`).get(providerId);
-    const user = db.prepare(`SELECT id, email, role, preferred_language, created_at FROM users WHERE id = ?`).get(req.user.id);
+    const user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
     const fssai = db.prepare(`SELECT * FROM provider_fssai_details WHERE provider_id = ?`).get(providerId) || null;
     const bank = db.prepare(`SELECT * FROM provider_bank_accounts WHERE provider_id = ?`).get(providerId) || null;
     const pricing = db.prepare(`SELECT * FROM provider_pricing WHERE provider_id = ?`).get(providerId) || null;
@@ -808,12 +808,56 @@ router.get('/profile', (req, res) => {
 });
 
 /**
+ * POST /api/provider/profile/photo - Upload or replace provider profile photo
+ */
+router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
+  upload.uploadPhoto.single('photo')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'File upload failed.' });
+    }
+    try {
+      const providerId = getProviderId(req);
+      if (!req.file) {
+        return res.status(400).json({ error: 'Please select a valid image file (JPG, JPEG, PNG, WEBP, max 5MB).' });
+      }
+
+      const photoUrl = `/uploads/${req.file.filename}`;
+
+      db.prepare(`
+        UPDATE provider_profiles 
+        SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(photoUrl, providerId);
+
+      db.prepare(`
+        UPDATE users 
+        SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(photoUrl, req.user.id);
+
+      const updatedProfile = db.prepare(`SELECT * FROM provider_profiles WHERE id = ?`).get(providerId);
+      const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
+
+      return res.json({
+        success: true,
+        message: 'Kitchen & Chef profile photo uploaded successfully!',
+        photo_url: photoUrl,
+        user: updatedUser,
+        profile: updatedProfile
+      });
+    } catch (routeErr) {
+      return res.status(500).json({ error: routeErr.message });
+    }
+  });
+});
+
+/**
  * PUT /api/provider/profile - Update provider details
  */
 router.put('/profile', (req, res) => {
   try {
     const providerId = getProviderId(req);
-    const { provider_name, kitchen_name, mobile, kitchen_address, bio, experience_years, food_type, is_open } = req.body;
+    const { provider_name, kitchen_name, mobile, kitchen_address, bio, experience_years, food_type, is_open, profile_photo } = req.body;
 
     if (!provider_name || !kitchen_name || !mobile) {
       return res.status(400).json({ error: 'Provider name, kitchen name, and mobile are required.' });
@@ -823,12 +867,16 @@ router.put('/profile', (req, res) => {
       UPDATE provider_profiles 
       SET provider_name = ?, kitchen_name = ?, mobile = ?, kitchen_address = COALESCE(?, kitchen_address),
           bio = COALESCE(?, bio), experience_years = COALESCE(?, experience_years), food_type = COALESCE(?, food_type),
-          is_open = COALESCE(?, is_open), updated_at = CURRENT_TIMESTAMP
+          is_open = COALESCE(?, is_open), profile_photo = COALESCE(?, profile_photo), updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(provider_name, kitchen_name, mobile, kitchen_address, bio, experience_years, food_type, is_open, providerId);
+    `).run(provider_name, kitchen_name, mobile, kitchen_address, bio, experience_years, food_type, is_open, profile_photo, providerId);
+
+    if (profile_photo) {
+      db.prepare(`UPDATE users SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(profile_photo, req.user.id);
+    }
 
     const updatedProfile = db.prepare(`SELECT * FROM provider_profiles WHERE id = ?`).get(providerId);
-    const updatedUser = db.prepare(`SELECT id, email, role, preferred_language FROM users WHERE id = ?`).get(req.user.id);
+    const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
 
     return res.json({
       success: true,

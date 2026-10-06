@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
+import ProfilePhotoUploader from '../../components/common/ProfilePhotoUploader';
 import { 
   ShieldAlert, 
   ShieldCheck, 
@@ -23,6 +24,7 @@ export default function AdminProfile({ setActiveTab }) {
 
   const [systemInfo, setSystemInfo] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [profilePhoto, setProfilePhoto] = useState(user?.profile_photo || null);
   const [prefLang, setPrefLang] = useState('en');
   const [feedback, setFeedback] = useState('');
 
@@ -38,6 +40,9 @@ export default function AdminProfile({ setActiveTab }) {
         setSystemInfo(data.systemInfo);
         if (data.user?.preferred_language) {
           setPrefLang(data.user.preferred_language);
+        }
+        if (data.user?.profile_photo) {
+          setProfilePhoto(data.user.profile_photo);
         }
       }
     } catch (err) {
@@ -74,6 +79,8 @@ export default function AdminProfile({ setActiveTab }) {
     }
   };
 
+  const adminPhoto = profilePhoto || user?.profile_photo;
+
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in">
       {/* Header */}
@@ -102,8 +109,20 @@ export default function AdminProfile({ setActiveTab }) {
           {/* ADMIN HERO CARD */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl shadow-xl border border-black/5 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-              <div className="w-20 h-20 rounded-3xl bg-white/10 border border-white/20 text-white flex items-center justify-center text-3xl font-black shadow-lg">
-                <ShieldAlert className="w-10 h-10 text-emerald-400" />
+              <div className="w-20 h-20 rounded-3xl overflow-hidden bg-white/10 border border-white/20 text-white flex items-center justify-center text-3xl font-black shadow-lg shrink-0">
+                {adminPhoto ? (
+                  <img
+                    src={adminPhoto}
+                    alt="Admin Avatar"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <ShieldAlert className="w-10 h-10 text-emerald-400" />
+                )}
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
@@ -131,6 +150,21 @@ export default function AdminProfile({ setActiveTab }) {
               </span>
             </div>
           </div>
+
+          {/* PROFILE PHOTO UPLOAD SECTION */}
+          <ProfilePhotoUploader
+            currentPhoto={adminPhoto}
+            uploadEndpoint="/api/admin/profile/photo"
+            role="ADMIN"
+            fallbackName={user?.email}
+            title="Administrator Avatar & Photo"
+            subtitle="Upload an official administrator photo or avatar for security and profile display."
+            onPhotoUploaded={async (photoUrl) => {
+              setProfilePhoto(photoUrl);
+              await refreshProfile();
+              fetchAdminProfile();
+            }}
+          />
 
           {/* SYSTEM OVERVIEW METRICS */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

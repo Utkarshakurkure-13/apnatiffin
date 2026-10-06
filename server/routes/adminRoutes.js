@@ -3,6 +3,7 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 const { authenticateJWT, requireRole } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 const CancellationEngine = require('../services/cancellationEngine');
 
 // Admin-only middleware
@@ -378,7 +379,7 @@ router.get('/audit-logs', (req, res) => {
  */
 router.get('/profile', (req, res) => {
   try {
-    const user = db.prepare(`SELECT id, email, role, preferred_language, created_at FROM users WHERE id = ?`).get(req.user.id);
+    const user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
     const systemInfo = {
       totalUsers: db.prepare(`SELECT COUNT(*) as count FROM users`).get()?.count || 0,
       totalCustomers: db.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'CUSTOMER'`).get()?.count || 0,
@@ -394,15 +395,53 @@ router.get('/profile', (req, res) => {
 });
 
 /**
+ * POST /api/admin/profile/photo - Upload or replace admin profile photo
+ */
+router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
+  upload.uploadPhoto.single('photo')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'File upload failed.' });
+    }
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Please select a valid image file (JPG, JPEG, PNG, WEBP, max 5MB).' });
+      }
+
+      const photoUrl = `/uploads/${req.file.filename}`;
+
+      db.prepare(`
+        UPDATE users 
+        SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(photoUrl, req.user.id);
+
+      const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
+
+      return res.json({
+        success: true,
+        message: 'Admin profile photo uploaded successfully!',
+        photo_url: photoUrl,
+        user: updatedUser
+      });
+    } catch (routeErr) {
+      return res.status(500).json({ error: routeErr.message });
+    }
+  });
+});
+
+/**
  * PUT /api/admin/profile - Update admin settings
  */
 router.put('/profile', (req, res) => {
   try {
-    const { preferred_language } = req.body;
+    const { preferred_language, profile_photo } = req.body;
     if (preferred_language && ['en', 'mr', 'hi'].includes(preferred_language)) {
       db.prepare(`UPDATE users SET preferred_language = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(preferred_language, req.user.id);
     }
-    const updatedUser = db.prepare(`SELECT id, email, role, preferred_language FROM users WHERE id = ?`).get(req.user.id);
+    if (profile_photo) {
+      db.prepare(`UPDATE users SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(profile_photo, req.user.id);
+    }
+    const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
     return res.json({ success: true, message: 'Admin profile updated successfully.', user: updatedUser });
   } catch (err) {
     return res.status(500).json({ error: err.message });
