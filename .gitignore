@@ -7,8 +7,11 @@ client/dist/
 
 # Environment files
 server/.env
+server/.env.*
 .env
+.env.*
 .env.local
+*.env
 
 # Logs
 logs/
@@ -17,6 +20,10 @@ npm-debug.log*
 
 # Database data files (optional, remove if you don't want to track local db)
 # server/data/*.db
+
+# Uploaded files
+server/uploads/*
+!server/uploads/.gitkeep
 
 # Editor & OS files
 .vscode/

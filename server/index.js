@@ -17,6 +17,8 @@ const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || '0.0.0.0';
 const EC2_IP = process.env.EC2_IP || '13.127.161.95';
 
+const s3Service = require('./services/s3Service');
+
 // Middleware
 app.use(cors({
   origin: '*',
@@ -26,8 +28,33 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve uploaded files
+// Serve uploaded files (with S3 fallback/redirect)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.get('/uploads/*', async (req, res, next) => {
+  try {
+    const rawKey = req.path.replace(/^\/+/, '');
+    const s3Key = `uploads/${rawKey}`;
+    const presignedUrl = await s3Service.getPresignedImageUrl(s3Key);
+    if (presignedUrl && presignedUrl !== req.originalUrl) {
+      return res.redirect(presignedUrl);
+    }
+    return next();
+  } catch (e) {
+    return next();
+  }
+});
+
+// Storage presign API endpoint
+app.get('/api/storage/presign', async (req, res) => {
+  try {
+    const { key } = req.query;
+    if (!key) return res.status(400).json({ error: 'Missing "key" query parameter.' });
+    const presignedUrl = await s3Service.getPresignedImageUrl(key);
+    return res.json({ key, presignedUrl });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -35,6 +62,9 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     app: 'Aapna Tiffin API Server',
     ip: EC2_IP,
+    s3Bucket: s3Service.AWS_S3_BUCKET,
+    s3Region: s3Service.AWS_REGION,
+    s3Active: s3Service.isS3Configured(),
     time: new Date().toISOString()
   });
 });

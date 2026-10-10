@@ -166,17 +166,20 @@ export default function ProviderProfile({ setActiveTab }) {
           {/* PROVIDER HERO CARD */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl shadow-xl border border-black/5 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 bg-gradient-to-r from-emerald-50/40 via-white to-amber-50/30">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-              <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-black/10 shadow-lg shrink-0 bg-gray-100 flex items-center justify-center">
-                <img
-                  src={activePhoto || defaultBannerImg}
-                  alt={kitchenName}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.onerror = null;
-                    e.currentTarget.src = defaultBannerImg;
-                  }}
-                />
-              </div>
+              {/* Compact Circular Kitchen / Chef Profile Picture with Camera Icon */}
+              <ProfilePhotoUploader
+                currentPhoto={activePhoto || defaultBannerImg}
+                uploadEndpoint="/api/provider/profile/photo"
+                role="PROVIDER"
+                fallbackName={kitchenName || providerName || user?.email}
+                size="md"
+                showChangeButton={true}
+                onPhotoUploaded={async (photoUrl) => {
+                  setProfilePhoto(photoUrl);
+                  await refreshProfile();
+                  fetchProfileData();
+                }}
+              />
               <div className="space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
                   <h2 className="font-heading font-black text-xl sm:text-2xl text-[#181a2e]">
@@ -216,21 +219,6 @@ export default function ProviderProfile({ setActiveTab }) {
               </div>
             </div>
           </div>
-
-          {/* PROFILE PHOTO UPLOAD SECTION */}
-          <ProfilePhotoUploader
-            currentPhoto={activePhoto}
-            uploadEndpoint="/api/provider/profile/photo"
-            role="PROVIDER"
-            fallbackName={kitchenName || providerName || user?.email}
-            title="Kitchen & Chef Profile Photo"
-            subtitle="Upload a kitchen branding photo, logo, or chef image to present your business to customers."
-            onPhotoUploaded={async (photoUrl) => {
-              setProfilePhoto(photoUrl);
-              await refreshProfile();
-              fetchProfileData();
-            }}
-          />
 
           {/* SHORTCUTS BAR */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

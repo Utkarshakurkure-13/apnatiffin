@@ -155,21 +155,20 @@ export default function CustomerProfile({ setActiveTab }) {
           {/* USER HERO CARD */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl shadow-xl border border-black/5 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 bg-gradient-to-r from-emerald-50/40 via-white to-amber-50/30">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-              <div className="w-20 h-20 rounded-3xl overflow-hidden border-2 border-black/10 bg-[#2d6a4f] text-white flex items-center justify-center text-3xl font-black shadow-lg shadow-[#2d6a4f]/20 shrink-0">
-                {activePhoto ? (
-                  <img
-                    src={activePhoto}
-                    alt={fullName || 'Customer Avatar'}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <span>{(fullName || user?.email || 'C').charAt(0).toUpperCase()}</span>
-                )}
-              </div>
+              {/* Compact Circular Profile Picture with Camera Icon */}
+              <ProfilePhotoUploader
+                currentPhoto={activePhoto}
+                uploadEndpoint="/api/customer/profile/photo"
+                role="CUSTOMER"
+                fallbackName={fullName || profile?.full_name || user?.email}
+                size="md"
+                showChangeButton={true}
+                onPhotoUploaded={async (photoUrl) => {
+                  setProfilePhoto(photoUrl);
+                  await refreshProfile();
+                  fetchProfileData();
+                }}
+              />
               <div className="space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
                   <h2 className="font-heading font-black text-xl sm:text-2xl text-[#181a2e]">
@@ -198,21 +197,6 @@ export default function CustomerProfile({ setActiveTab }) {
               </span>
             </div>
           </div>
-
-          {/* PROFILE PHOTO UPLOAD SECTION */}
-          <ProfilePhotoUploader
-            currentPhoto={activePhoto}
-            uploadEndpoint="/api/customer/profile/photo"
-            role="CUSTOMER"
-            fallbackName={fullName || profile?.full_name || user?.email}
-            title="Profile Photo / Avatar"
-            subtitle="Upload a personal photo to personalize your account across orders and notifications."
-            onPhotoUploaded={async (photoUrl) => {
-              setProfilePhoto(photoUrl);
-              await refreshProfile();
-              fetchProfileData();
-            }}
-          />
 
           {/* QUICK METRICS GRID */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

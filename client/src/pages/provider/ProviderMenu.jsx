@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useI18n } from '../../context/I18nContext';
-import { Plus, Edit2, Trash2, Sparkles, CheckCircle2, Utensils, Lock, BarChart2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Sparkles, CheckCircle2, Utensils, Lock, BarChart2, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 export default function ProviderMenu() {
   const { t } = useI18n();
@@ -17,6 +17,9 @@ export default function ProviderMenu() {
   const [price, setPrice] = useState(110);
   const [isSpeciality, setIsSpeciality] = useState(false);
   const [isAvailable, setIsAvailable] = useState(true);
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const fileInputRef = useRef(null);
 
   const [actionMsg, setActionMsg] = useState('');
 
@@ -57,6 +60,7 @@ export default function ProviderMenu() {
     setPrice(110);
     setIsSpeciality(false);
     setIsAvailable(true);
+    setPhotoUrl('');
     setDishModalOpen(true);
   };
 
@@ -68,7 +72,36 @@ export default function ProviderMenu() {
     setPrice(item.price);
     setIsSpeciality(item.is_speciality === 1);
     setIsAvailable(item.is_available === 1);
+    setPhotoUrl(item.photo_url || '');
     setDishModalOpen(true);
+  };
+
+  const handleDishPhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingPhoto(true);
+    try {
+      const token = localStorage.getItem('aapna_tiffin_token');
+      const formData = new FormData();
+      formData.append('photo', file);
+
+      const res = await fetch('/api/provider/menu/upload-image', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to upload dish photo');
+
+      setPhotoUrl(data.photo_url);
+    } catch (err) {
+      alert(err.message || 'Image upload failed');
+    } finally {
+      setUploadingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleSaveDish = async (e) => {
@@ -90,7 +123,8 @@ export default function ProviderMenu() {
           description,
           price: parseFloat(price),
           is_speciality: isSpeciality,
-          is_available: isAvailable
+          is_available: isAvailable,
+          photo_url: photoUrl || null
         })
       });
 
@@ -175,7 +209,20 @@ export default function ProviderMenu() {
       {/* DISHES LIST */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {menuItems.map((item) => (
-          <div key={item.id} className="glass-panel p-5 rounded-3xl space-y-3 flex flex-col justify-between shadow-md border border-black/5">
+          <div key={item.id} className="glass-panel p-5 rounded-3xl space-y-3 flex flex-col justify-between shadow-md border border-black/5 overflow-hidden">
+            {item.photo_url && (
+              <div className="w-full h-36 -mx-5 -mt-5 mb-2 overflow-hidden bg-gray-100">
+                <img
+                  src={item.photo_url}
+                  alt={item.name}
+                  className="w-full h-full object-cover transition-transform hover:scale-105"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.parentElement.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${item.meal_type === 'LUNCH' ? 'bg-amber-100 text-amber-900' : 'bg-indigo-100 text-indigo-900'}`}>
@@ -289,6 +336,49 @@ export default function ProviderMenu() {
                     className={`p-2 rounded-xl border ${mealType === 'DINNER' ? 'bg-[#2d6a4f] text-white' : 'bg-white text-[#404943]'}`}
                   >
                     Dinner
+                  </button>
+                </div>
+              </div>
+
+              {/* Food Image Upload to S3 */}
+              <div>
+                <label className="text-xs font-bold text-[#181a2e] block mb-1">
+                  Dish Photo (AWS S3 Storage):
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleDishPhotoUpload}
+                  className="hidden"
+                />
+                <div className="flex items-center gap-3">
+                  {photoUrl ? (
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden border border-black/10 bg-gray-50 shrink-0 relative">
+                      <img src={photoUrl} alt="Dish preview" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl border border-dashed border-black/20 bg-gray-50 flex items-center justify-center text-gray-400 shrink-0">
+                      <ImageIcon className="w-6 h-6" />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={uploadingPhoto}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="btn-pill bg-white hover:bg-emerald-50 text-[#0f5238] border border-[#2d6a4f]/30 text-xs py-2 px-4 font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {uploadingPhoto ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Uploading to S3...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>{photoUrl ? 'Change S3 Photo' : 'Upload Food Photo'}</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

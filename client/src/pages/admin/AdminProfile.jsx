@@ -109,21 +109,20 @@ export default function AdminProfile({ setActiveTab }) {
           {/* ADMIN HERO CARD */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl shadow-xl border border-black/5 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white">
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-              <div className="w-20 h-20 rounded-3xl overflow-hidden bg-white/10 border border-white/20 text-white flex items-center justify-center text-3xl font-black shadow-lg shrink-0">
-                {adminPhoto ? (
-                  <img
-                    src={adminPhoto}
-                    alt="Admin Avatar"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <ShieldAlert className="w-10 h-10 text-emerald-400" />
-                )}
-              </div>
+              {/* Compact Circular Admin Profile Picture with Camera Icon */}
+              <ProfilePhotoUploader
+                currentPhoto={adminPhoto}
+                uploadEndpoint="/api/admin/profile/photo"
+                role="ADMIN"
+                fallbackName={user?.email}
+                size="md"
+                showChangeButton={true}
+                onPhotoUploaded={async (photoUrl) => {
+                  setProfilePhoto(photoUrl);
+                  await refreshProfile();
+                  fetchAdminProfile();
+                }}
+              />
               <div className="space-y-1">
                 <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
                   <h2 className="font-heading font-black text-xl sm:text-2xl text-white">
@@ -150,21 +149,6 @@ export default function AdminProfile({ setActiveTab }) {
               </span>
             </div>
           </div>
-
-          {/* PROFILE PHOTO UPLOAD SECTION */}
-          <ProfilePhotoUploader
-            currentPhoto={adminPhoto}
-            uploadEndpoint="/api/admin/profile/photo"
-            role="ADMIN"
-            fallbackName={user?.email}
-            title="Administrator Avatar & Photo"
-            subtitle="Upload an official administrator photo or avatar for security and profile display."
-            onPhotoUploaded={async (photoUrl) => {
-              setProfilePhoto(photoUrl);
-              await refreshProfile();
-              fetchAdminProfile();
-            }}
-          />
 
           {/* SYSTEM OVERVIEW METRICS */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

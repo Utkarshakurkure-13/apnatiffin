@@ -11,6 +11,7 @@ const SubscriptionEngine = require('../services/subscriptionEngine');
 const GeofenceEngine = require('../services/geofenceEngine');
 const NotificationEngine = require('../services/notificationEngine');
 const upload = require('../middleware/upload');
+const s3Service = require('../services/s3Service');
 
 // Customer-only middleware
 router.use(authenticateJWT, requireRole('CUSTOMER'));
@@ -654,7 +655,7 @@ function categorizeFoodItem(name = '') {
 /**
  * Helper to enrich an active order with dynamic today_menu_items and expected delivery time window
  */
-function enrichActiveOrder(o) {
+async function enrichActiveOrder(o) {
   // 1. Calculate Expected Delivery Window based on actual order / schedule
   let expectedDeliveryTime = '1:00 PM – 1:30 PM';
   if (o.delivery_scheduled_time) {
@@ -761,10 +762,21 @@ function enrichActiveOrder(o) {
     ];
   }
 
+  const resolvedMenuItems = await Promise.all(todayMenuItems.map(async item => ({
+    ...item,
+    photo_url: item.photo_url ? await s3Service.getPresignedImageUrl(item.photo_url) : null
+  })));
+
+  let deliveryProofUrl = o.delivery_proof_url;
+  if (deliveryProofUrl) {
+    deliveryProofUrl = await s3Service.getPresignedImageUrl(deliveryProofUrl);
+  }
+
   return {
     ...o,
+    delivery_proof_url: deliveryProofUrl,
     expected_delivery_time: expectedDeliveryTime,
-    today_menu_items: todayMenuItems
+    today_menu_items: resolvedMenuItems
   };
 }
 
@@ -772,7 +784,7 @@ function enrichActiveOrder(o) {
  * GET /api/customer/dashboard/today - Today's Live Dashboard Bundle
  * Returns active orders, today's delivered meals (delivered today only), and today's menus
  */
-router.get('/dashboard/today', (req, res) => {
+router.get('/dashboard/today', async (req, res) => {
   try {
     const customerId = getCustomerId(req);
 
@@ -785,10 +797,10 @@ router.get('/dashboard/today', (req, res) => {
       ORDER BY o.created_at DESC
     `).all(customerId);
 
-    const activeOrders = rawActiveOrders.map(enrichActiveOrder);
+    const activeOrders = await Promise.all(rawActiveOrders.map(enrichActiveOrder));
 
     // 2. Orders Delivered strictly TODAY
-    const deliveredTodayOrders = db.prepare(`
+    const deliveredTodayOrdersRaw = db.prepare(`
       SELECT o.*, p.provider_name, p.kitchen_name, p.mobile as provider_mobile, p.food_type,
              r.rating, r.review_text
       FROM orders o
@@ -798,6 +810,8 @@ router.get('/dashboard/today', (req, res) => {
         AND (DATE(o.updated_at) = CURRENT_DATE OR DATE(o.delivery_scheduled_time) = CURRENT_DATE OR DATE(o.created_at) = CURRENT_DATE)
       ORDER BY o.updated_at DESC
     `).all(customerId);
+
+    const deliveredTodayOrders = await s3Service.resolveImageFields(deliveredTodayOrdersRaw, ['delivery_proof_url']);
 
     // 3. Today's Curated Fresh Menus from Active Providers strictly serving customer's location
     const { lat, lon } = req.query;
@@ -833,6 +847,7 @@ router.get('/dashboard/today', (req, res) => {
         if (coverage.isWithinRadius) {
           todaysSpecialMenus.push({
             ...item,
+            photo_url: item.photo_url ? await s3Service.getPresignedImageUrl(item.photo_url) : null,
             distance_km: coverage.distanceKm,
             service_radius_km: coverage.radiusKm,
             serves_location: true
@@ -855,7 +870,7 @@ router.get('/dashboard/today', (req, res) => {
 /**
  * GET /api/customer/orders/active - Today's Active Order
  */
-router.get('/orders/active', (req, res) => {
+router.get('/orders/active', async (req, res) => {
   const customerId = getCustomerId(req);
   const rawActiveOrders = db.prepare(`
     SELECT o.*, p.provider_name, p.kitchen_name, p.mobile as provider_mobile, p.food_type
@@ -865,16 +880,16 @@ router.get('/orders/active', (req, res) => {
     ORDER BY o.created_at DESC
   `).all(customerId);
 
-  const activeOrders = rawActiveOrders.map(enrichActiveOrder);
+  const activeOrders = await Promise.all(rawActiveOrders.map(enrichActiveOrder));
   return res.json({ activeOrders });
 });
 
 /**
  * GET /api/customer/orders - All Customer Orders
  */
-router.get('/orders', (req, res) => {
+router.get('/orders', async (req, res) => {
   const customerId = getCustomerId(req);
-  const orders = db.prepare(`
+  const rawOrders = db.prepare(`
     SELECT o.*, p.provider_name, p.kitchen_name, r.rating, r.review_text
     FROM orders o
     JOIN provider_profiles p ON o.provider_id = p.id
@@ -883,6 +898,7 @@ router.get('/orders', (req, res) => {
     ORDER BY o.created_at DESC
   `).all(customerId);
 
+  const orders = await s3Service.resolveImageFields(rawOrders, ['delivery_proof_url']);
   return res.json({ orders });
 });
 
@@ -1245,16 +1261,23 @@ router.put('/notifications/:id/read', (req, res) => {
 /**
  * GET /api/customer/profile - Full profile with stats
  */
-router.get('/profile', (req, res) => {
+router.get('/profile', async (req, res) => {
   try {
     const customerId = getCustomerId(req);
-    const profile = db.prepare(`SELECT * FROM customer_profiles WHERE id = ?`).get(customerId);
-    const user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
+    let profile = db.prepare(`SELECT * FROM customer_profiles WHERE id = ?`).get(customerId);
+    let user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
     const activeOrdersCount = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE customer_id = ? AND order_status IN ('NEW', 'ACCEPTED', 'PREPARING', 'READY')`).get(customerId)?.count || 0;
     const totalOrdersCount = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE customer_id = ?`).get(customerId)?.count || 0;
     const activeSubsCount = db.prepare(`SELECT COUNT(*) as count FROM subscriptions WHERE customer_id = ? AND status = 'ACTIVE'`).get(customerId)?.count || 0;
     const pointsRow = db.prepare(`SELECT COALESCE(SUM(points_change), 0) as total_points FROM customer_points_ledger WHERE customer_id = ?`).get(customerId);
     const availablePoints = pointsRow ? pointsRow.total_points : 0;
+
+    if (profile && profile.profile_photo) {
+      profile.profile_photo = await s3Service.getPresignedImageUrl(profile.profile_photo);
+    }
+    if (user && user.profile_photo) {
+      user.profile_photo = await s3Service.getPresignedImageUrl(user.profile_photo);
+    }
 
     return res.json({
       user,
@@ -1275,7 +1298,7 @@ router.get('/profile', (req, res) => {
  * POST /api/customer/profile/photo - Upload or replace customer profile photo
  */
 router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
-  upload.uploadPhoto.single('photo')(req, res, (err) => {
+  upload.uploadPhoto.single('photo')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'File upload failed.' });
     }
@@ -1285,27 +1308,32 @@ router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
         return res.status(400).json({ error: 'Please select a valid image file (JPG, JPEG, PNG, WEBP, max 5MB).' });
       }
 
-      const photoUrl = `/uploads/${req.file.filename}`;
+      // Upload file to S3
+      const { key, presignedUrl } = await s3Service.uploadFileToS3(req.file, 'profiles');
 
       db.prepare(`
         UPDATE customer_profiles 
         SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(photoUrl, customerId);
+      `).run(key, customerId);
 
       db.prepare(`
         UPDATE users 
         SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(photoUrl, req.user.id);
+      `).run(key, req.user.id);
 
       const updatedProfile = db.prepare(`SELECT * FROM customer_profiles WHERE id = ?`).get(customerId);
       const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
 
+      if (updatedProfile) updatedProfile.profile_photo = presignedUrl;
+      if (updatedUser) updatedUser.profile_photo = presignedUrl;
+
       return res.json({
         success: true,
         message: 'Profile photo uploaded successfully!',
-        photo_url: photoUrl,
+        photo_url: presignedUrl,
+        storage_key: key,
         user: updatedUser,
         profile: updatedProfile
       });

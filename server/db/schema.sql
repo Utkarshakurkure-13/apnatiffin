@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('CUSTOMER', 'PROVIDER', 'ADMIN')),
     preferred_language TEXT NOT NULL DEFAULT 'en' CHECK (preferred_language IN ('en', 'mr', 'hi')),
+    profile_photo TEXT DEFAULT NULL,
     is_blocked INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0, 1)),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS customer_profiles (
     full_name TEXT NOT NULL,
     mobile TEXT NOT NULL,
     delivery_address TEXT NOT NULL,
+    profile_photo TEXT DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -46,6 +48,7 @@ CREATE TABLE IF NOT EXISTS provider_profiles (
     bio TEXT,
     rating_avg REAL NOT NULL DEFAULT 0.0,
     total_reviews INTEGER NOT NULL DEFAULT 0,
+    profile_photo TEXT DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

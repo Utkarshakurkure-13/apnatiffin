@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 const { JWT_SECRET, authenticateJWT } = require('../middleware/auth');
 const NotificationEngine = require('../services/notificationEngine');
+const s3Service = require('../services/s3Service');
 
 // Store simulated email OTPs in memory
 const emailOtpStore = new Map();
@@ -103,6 +104,12 @@ router.post('/login', async (req, res) => {
     VALUES (?, ?, 'USER_LOGIN', 'USER', ?, ?)
   `).run(uuidv4(), user.id, user.id, JSON.stringify({ role: user.role }));
 
+  const rawPhoto = user.profile_photo || (profile && profile.profile_photo) || null;
+  const presignedPhoto = await s3Service.getPresignedImageUrl(rawPhoto);
+  if (profile && profile.profile_photo) {
+    profile.profile_photo = presignedPhoto;
+  }
+
   return res.json({
     success: true,
     token,
@@ -111,7 +118,7 @@ router.post('/login', async (req, res) => {
       email: user.email,
       role: user.role,
       preferred_language: user.preferred_language,
-      profile_photo: user.profile_photo || (profile && profile.profile_photo) || null
+      profile_photo: presignedPhoto
     },
     profile
   });
@@ -412,16 +419,23 @@ router.post('/register/provider', async (req, res) => {
 /**
  * GET /api/auth/me
  */
-router.get('/me', authenticateJWT, (req, res) => {
+router.get('/me', authenticateJWT, async (req, res) => {
+  const rawPhoto = req.user.profile_photo || (req.user.profile && req.user.profile.profile_photo) || null;
+  const presignedPhoto = await s3Service.getPresignedImageUrl(rawPhoto);
+  const profile = req.user.profile ? { ...req.user.profile } : null;
+  if (profile && profile.profile_photo) {
+    profile.profile_photo = presignedPhoto;
+  }
+
   return res.json({
     user: {
       id: req.user.id,
       email: req.user.email,
       role: req.user.role,
       preferred_language: req.user.preferred_language,
-      profile_photo: req.user.profile_photo || (req.user.profile && req.user.profile.profile_photo) || null
+      profile_photo: presignedPhoto
     },
-    profile: req.user.profile
+    profile
   });
 });
 

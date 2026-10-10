@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 const { authenticateJWT, requireRole } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const s3Service = require('../services/s3Service');
 const OTPEngine = require('../services/otpEngine');
 const CancellationEngine = require('../services/cancellationEngine');
 const GeofenceEngine = require('../services/geofenceEngine');
@@ -181,31 +182,63 @@ router.post('/orders/:id/verify-otp', (req, res) => {
 /**
  * POST /api/provider/orders/:id/upload-proof - Delivery Photo Proof
  */
-router.post('/orders/:id/upload-proof', upload.single('delivery_photo'), (req, res) => {
+router.post('/orders/:id/upload-proof', upload.single('delivery_photo'), async (req, res) => {
   try {
     const providerId = getProviderId(req);
     let photoUrl = req.body.photo_url;
+    let presignedDisplayUrl = null;
 
     if (req.file) {
-      photoUrl = `/uploads/${req.file.filename}`;
+      const { key, presignedUrl } = await s3Service.uploadFileToS3(req.file, 'delivery');
+      photoUrl = key;
+      presignedDisplayUrl = presignedUrl;
     }
 
     if (!photoUrl) {
       photoUrl = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80';
+      presignedDisplayUrl = photoUrl;
     }
 
     const result = OTPEngine.completeDeliveryViaPhoto(req.params.id, providerId, photoUrl);
-    return res.json(result);
+    if (!presignedDisplayUrl) {
+      presignedDisplayUrl = await s3Service.getPresignedImageUrl(photoUrl);
+    }
+    return res.json({ ...result, deliveryProofUrl: presignedDisplayUrl });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
 });
 
+/**
+ * POST /api/provider/menu/upload-image - Upload dish photo to S3
+ */
+router.post('/menu/upload-image', (req, res, next) => {
+  upload.uploadPhoto.single('photo')(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'File upload failed.' });
+    }
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Please select a valid food image (JPG, PNG, WEBP, max 5MB).' });
+      }
+
+      const { key, presignedUrl } = await s3Service.uploadFileToS3(req.file, 'menu');
+      return res.json({
+        success: true,
+        message: 'Food photo uploaded successfully!',
+        key,
+        photo_url: presignedUrl
+      });
+    } catch (routeErr) {
+      return res.status(500).json({ error: routeErr.message });
+    }
+  });
+});
 
 /**
  * GET /api/provider/menu - Today's Menu items
  */
-router.get('/menu', (req, res) => {
+router.get('/menu', async (req, res) => {
   const providerId = getProviderId(req);
   const today = new Date().toISOString().split('T')[0];
 
@@ -215,7 +248,8 @@ router.get('/menu', (req, res) => {
     ORDER BY meal_type ASC, is_speciality DESC
   `).all(providerId, today);
 
-  return res.json({ menuItems: items, todayDate: today });
+  const resolvedItems = await s3Service.resolveImageFields(items, ['photo_url']);
+  return res.json({ menuItems: resolvedItems, todayDate: today });
 });
 
 /**
@@ -782,16 +816,23 @@ router.post('/delivery-route/complete-stop', (req, res) => {
 /**
  * GET /api/provider/profile - Full Provider Profile with FSSAI, Bank, and Pricing
  */
-router.get('/profile', (req, res) => {
+router.get('/profile', async (req, res) => {
   try {
     const providerId = getProviderId(req);
-    const profile = db.prepare(`SELECT * FROM provider_profiles WHERE id = ?`).get(providerId);
-    const user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
+    let profile = db.prepare(`SELECT * FROM provider_profiles WHERE id = ?`).get(providerId);
+    let user = db.prepare(`SELECT id, email, role, preferred_language, profile_photo, created_at FROM users WHERE id = ?`).get(req.user.id);
     const fssai = db.prepare(`SELECT * FROM provider_fssai_details WHERE provider_id = ?`).get(providerId) || null;
     const bank = db.prepare(`SELECT * FROM provider_bank_accounts WHERE provider_id = ?`).get(providerId) || null;
     const pricing = db.prepare(`SELECT * FROM provider_pricing WHERE provider_id = ?`).get(providerId) || null;
     const location = db.prepare(`SELECT * FROM provider_locations WHERE provider_id = ? AND is_primary = 1`).get(providerId) || null;
     const serviceArea = db.prepare(`SELECT * FROM provider_service_areas WHERE provider_id = ? AND is_active = 1`).get(providerId) || null;
+
+    if (profile && profile.profile_photo) {
+      profile.profile_photo = await s3Service.getPresignedImageUrl(profile.profile_photo);
+    }
+    if (user && user.profile_photo) {
+      user.profile_photo = await s3Service.getPresignedImageUrl(user.profile_photo);
+    }
 
     return res.json({
       user,
@@ -811,7 +852,7 @@ router.get('/profile', (req, res) => {
  * POST /api/provider/profile/photo - Upload or replace provider profile photo
  */
 router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
-  upload.uploadPhoto.single('photo')(req, res, (err) => {
+  upload.uploadPhoto.single('photo')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'File upload failed.' });
     }
@@ -821,27 +862,32 @@ router.post(['/profile/photo', '/profile-photo'], (req, res, next) => {
         return res.status(400).json({ error: 'Please select a valid image file (JPG, JPEG, PNG, WEBP, max 5MB).' });
       }
 
-      const photoUrl = `/uploads/${req.file.filename}`;
+      // Upload file to S3
+      const { key, presignedUrl } = await s3Service.uploadFileToS3(req.file, 'providers');
 
       db.prepare(`
         UPDATE provider_profiles 
         SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(photoUrl, providerId);
+      `).run(key, providerId);
 
       db.prepare(`
         UPDATE users 
         SET profile_photo = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).run(photoUrl, req.user.id);
+      `).run(key, req.user.id);
 
       const updatedProfile = db.prepare(`SELECT * FROM provider_profiles WHERE id = ?`).get(providerId);
       const updatedUser = db.prepare(`SELECT id, email, role, preferred_language, profile_photo FROM users WHERE id = ?`).get(req.user.id);
 
+      if (updatedProfile) updatedProfile.profile_photo = presignedUrl;
+      if (updatedUser) updatedUser.profile_photo = presignedUrl;
+
       return res.json({
         success: true,
         message: 'Kitchen & Chef profile photo uploaded successfully!',
-        photo_url: photoUrl,
+        photo_url: presignedUrl,
+        storage_key: key,
         user: updatedUser,
         profile: updatedProfile
       });
